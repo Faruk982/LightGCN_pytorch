@@ -117,6 +117,15 @@ def DynamicSample_hard(dataset, model, num_candidates=10):
     model.eval()  # Set model to evaluation mode for inference
     
     with torch.no_grad():  # No gradients needed for sampling
+        # Compute embeddings once for all users and items
+        if hasattr(model, 'computer'):
+            # For LightGCN
+            all_users_emb, all_items_emb = model.computer()
+        else:
+            # For MF
+            all_users_emb = model.embedding_user.weight
+            all_items_emb = model.embedding_item.weight
+        
         for user in users:
             posForUser = allPos[user]
             if len(posForUser) == 0:
@@ -145,17 +154,9 @@ def DynamicSample_hard(dataset, model, num_candidates=10):
                 S.append([user, positem, negitem])
                 continue
             
-            # Compute scores for all candidate negatives
-            user_tensor = torch.LongTensor([user]).to(world.device)
-            user_emb = model.computer()[0][user_tensor] if hasattr(model, 'computer') else model.embedding_user(user_tensor)
-            
-            cand_tensor = torch.LongTensor(candidates).to(world.device)
-            if hasattr(model, 'computer'):
-                # For LightGCN
-                cand_emb = model.computer()[1][cand_tensor]
-            else:
-                # For MF
-                cand_emb = model.embedding_item(cand_tensor)
+            # Get embeddings for this user and candidate items
+            user_emb = all_users_emb[user]
+            cand_emb = all_items_emb[candidates]
             
             # Calculate scores: higher score = harder negative
             scores = torch.sum(user_emb * cand_emb, dim=1)
